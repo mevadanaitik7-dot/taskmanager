@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#07070f"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="TaskMaster"/>
+<meta name="description" content="Apna daily life task manager — motivational aur powerful"/>
+<title>TaskMaster ✦</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,#root{height:100%;overflow:hidden}
+body{background:#07070f;color:#e8e8f0;font-family:'DM Sans',sans-serif;overscroll-behavior:none}
+input,select,textarea,button{font-family:'DM Sans',sans-serif;outline:none}
+button{cursor:pointer}
+#root{overflow-y:auto;-webkit-overflow-scrolling:touch}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:rgba(245,158,11,0.25);border-radius:2px}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes popAnim{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.slide{animation:slideUp 0.28s ease}
+.pop{animation:popAnim 0.22s ease}
+.fadein{animation:fadeIn 0.3s ease}
+input[type=date]{color-scheme:dark}
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.7)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {useState,useEffect,useCallback,useMemo,createElement:h,Fragment}=React;
+const {BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,PieChart,Pie,Cell,CartesianGrid}=Recharts||{};
+
+const QUOTES=["Ek ek kadam bada badlav laata hai.","Aaj ka mehnat, kal ki taqdeer.","Progress, perfection nahi — bas aage badho.","Har task complete ek jeet hai.","Apne future self ke liye aaj kuch karo.","Choti shuruat, bada sapna — abhi shuru karo.","The secret of getting ahead is getting started.","Discipline hi asli freedom hai.","Haar din ek naya mauka hai.","Tum extraordinary kaam karne ke capable ho.","Aaj jo nahi kiya, kal nahi hoga.","Consistency beats intensity — roz karo.","Your future self will thank you.","Small wins lead to big victories."];
+
+const PC={
+  "very-important":{label:"Very Important",color:"#ef4444",bg:"rgba(239,68,68,0.12)",border:"rgba(239,68,68,0.4)",emoji:"🔴",order:1},
+  "important":{label:"Important",color:"#f97316",bg:"rgba(249,115,22,0.12)",border:"rgba(249,115,22,0.4)",emoji:"🟠",order:2},
+  "normal":{label:"Normal",color:"#3b82f6",bg:"rgba(59,130,246,0.12)",border:"rgba(59,130,246,0.4)",emoji:"🔵",order:3},
+  "daily":{label:"Daily",color:"#10b981",bg:"rgba(16,185,129,0.12)",border:"rgba(16,185,129,0.4)",emoji:"✨",order:4},
+  "low":{label:"Low Priority",color:"#64748b",bg:"rgba(100,116,139,0.08)",border:"rgba(100,116,139,0.25)",emoji:"⚪",order:5}
+};
+const COLORS=["#f59e0b","#ef4444","#3b82f6","#10b981","#8b5cf6","#f97316","#ec4899","#06b6d4","#84cc16","#a78bfa"];
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36);
+const toStr=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
+const mKey=s=>s.slice(0,7);
+const pDt=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const fDt=s=>{const d=pDt(s);return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`};
+const dName=s=>{const d=pDt(s);return ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()]};
+
+const SK="taskmaster_v4";
+const load=()=>{try{const d=localStorage.getItem(SK);return d?JSON.parse(d):null}catch{return null}};
+const sv=d=>{try{localStorage.setItem(SK,JSON.stringify(d))}catch{}};
+const dflt=()=>({tasks:[],dailyTmpls:[],lastSync:"",notifOn:false});
+
+function App(){
+  const[data,setData]=useState(()=>load()||dflt());
+  const[tab,setTab]=useState("today");
+  const[selDate,setSelDate]=useState(toStr);
+  const[addOpen,setAddOpen]=useState(false);
+  const[dailyOpen,setDailyOpen]=useState(false);
+  const[progMonth,setProgMonth]=useState(()=>{const n=new Date();return{y:n.getFullYear(),m:n.getMonth()}});
+  const[confetti,setConfetti]=useState(false);
+
+  useEffect(()=>{sv(data)},[data]);
+
+  useEffect(()=>{
+    const td=toStr();
+    if(data.lastSync!==td&&data.dailyTmpls.length>0){
+      setData(prev=>{
+        const eIds=prev.tasks.filter(t=>t.date===td&&t.isDaily).map(t=>t.tmplId);
+        const nT=prev.dailyTmpls.filter(t=>t.active&&!eIds.includes(t.id)).map(t=>({id:uid(),title:t.title,date:td,done:false,doneAt:null,priority:"daily",isDaily:true,tmplId:t.id,color:t.color,createdAt:Date.now()}));
+        return{...prev,tasks:[...prev.tasks,...nT],lastSync:td};
+      });
+    }else if(data.lastSync!==td){setData(p=>({...p,lastSync:td}))}
+  },[]);
+
+  const upd=useCallback(fn=>setData(fn),[]);
+  const addTask=useCallback(t=>upd(p=>({...p,tasks:[...p.tasks,{id:uid(),...t,done:false,doneAt:null,isDaily:false,createdAt:Date.now()}]})),[upd]);
+  const delTask=useCallback(id=>upd(p=>({...p,tasks:p.tasks.filter(t=>t.id!==id)})),[upd]);
+  const toggleTask=useCallback(id=>{
+    upd(p=>{
+      const tasks=p.tasks.map(t=>t.id===id?{...t,done:!t.done,doneAt:!t.done?Date.now():null}:t);
+      const task=tasks.find(t=>t.id===id);
+      if(task?.done){setConfetti(true);setTimeout(()=>setConfetti(false),1500)}
+      return{...p,tasks};
+    });
+  },[upd]);
+  const addTmpl=useCallback(t=>upd(p=>({...p,dailyTmpls:[...p.dailyTmpls,{id:uid(),...t,active:true}]})),[upd]);
+  const delTmpl=useCallback(id=>upd(p=>({...p,dailyTmpls:p.dailyTmpls.filter(t=>t.id!==id)})),[upd]);
+  const togTmpl=useCallback(id=>upd(p=>({...p,dailyTmpls:p.dailyTmpls.map(t=>t.id===id?{...t,active:!t.active}:t)})),[upd]);
+
+  const forDate=useCallback(d=>[...data.tasks].filter(t=>t.date===d).sort((a,b)=>{const pa=PC[a.priority]?.order||5,pb=PC[b.priority]?.order||5;return pa!==pb?pa-pb:a.createdAt-b.createdAt}),[data.tasks]);
+
+  const mStats=useCallback((y,m)=>{
+    const pfx=`${y}-${String(m+1).padStart(2,"0")}`;
+    const mt=data.tasks.filter(t=>t.date.startsWith(pfx));
+    const map={};const dim=new Date(y,m+1,0).getDate();
+    for(let i=1;i<=dim;i++)map[i]={day:i,total:0,done:0};
+    mt.forEach(t=>{const d=parseInt(t.date.slice(8));if(map[d]){map[d].total++;if(t.done)map[d].done++}});
+    const days=Object.values(map).filter(d=>d.total>0);
+    return{days,total:mt.length,done:mt.filter(t=>t.done).length,left:mt.filter(t=>!t.done).length};
+  },[data.tasks]);
+
+  const td=toStr();
+  const tdTasks=forDate(td);
+  const tdDone=tdTasks.filter(t=>t.done).length;
+  const pct=tdTasks.length>0?Math.round(tdDone/tdTasks.length*100):0;
+  const quote=useMemo(()=>QUOTES[new Date().getDate()%QUOTES.length],[]);
+
+  // Styles
+  const S={
+    wrap:{maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"linear-gradient(170deg,#0d0d1a 0%,#07070f 100%)",paddingBottom:82},
+    hdr:{padding:"16px 18px 12px",borderBottom:"1px solid rgba(255,255,255,0.06)",background:"rgba(8,8,18,0.95)",backdropFilter:"blur(20px)",position:"sticky",top:0,zIndex:100},
+    title:{fontFamily:"Playfair Display,serif",fontSize:22,fontWeight:700,background:"linear-gradient(135deg,#f59e0b,#fcd34d)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"},
+    tabbar:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"rgba(7,7,15,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.08)",display:"flex",zIndex:200,padding:"6px 0 max(10px,env(safe-area-inset-bottom))"},
+    tb:a=>({flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"5px 0",border:"none",background:"none",color:a?"#f59e0b":"#475569",fontSize:10,fontWeight:a?600:400,transition:"all 0.2s",cursor:"pointer"}),
+    fab:{position:"fixed",bottom:88,right:"max(16px,calc(50% - 200px))",width:56,height:56,borderRadius:"50%",background:"linear-gradient(135deg,#f59e0b,#f97316)",border:"none",color:"#fff",fontSize:30,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 24px rgba(245,158,11,0.5)",cursor:"pointer",zIndex:150,lineHeight:1},
+    card:{background:"rgba(255,255,255,0.035)",borderRadius:14,padding:"14px 16px",margin:"8px 16px",border:"1px solid rgba(255,255,255,0.07)"},
+    modal:{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(12px)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"},
+    mc:{background:"linear-gradient(170deg,#131325,#0d0d1a)",width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px max(44px,calc(24px + env(safe-area-inset-bottom)))",border:"1px solid rgba(255,255,255,0.1)",maxHeight:"90vh",overflowY:"auto"},
+    inp:{width:"100%",background:"rgba(255,255,255,0.055)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,padding:"12px 14px",color:"#e8e8f0",fontSize:15,marginTop:6},
+    lbl:{fontSize:12,fontWeight:600,color:"#94a3b8",display:"block",marginTop:14},
+    st:{fontSize:11,fontWeight:600,color:"#475569",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px 4px"},
+    empty:{textAlign:"center",padding:"50px 20px",color:"#475569"},
+    btn:(col,bg,bdr)=>({width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${bdr||"transparent"}`,background:bg,color:col,fontSize:14,fontWeight:600,cursor:"pointer",marginTop:8}),
+  };
+
+  // ── TaskItem ──
+  function TaskItem({task}){
+    const pc=PC[task.priority]||PC.normal;
+    const dc=task.color||pc.color;
+    return h("div",{className:"slide",style:{display:"flex",alignItems:"flex-start",gap:11,padding:"11px 16px",background:task.done?"rgba(255,255,255,0.015)":pc.bg,margin:"5px 16px",borderRadius:12,border:`1px solid ${task.done?"rgba(255,255,255,0.05)":pc.border}`,borderLeft:`3px solid ${task.done?"rgba(255,255,255,0.06)":pc.border}`,transition:"all 0.25s"}},
+      h("button",{onClick:()=>toggleTask(task.id),className:task.done?"pop":"",style:{width:24,height:24,borderRadius:"50%",border:`2px solid ${task.done?dc:"rgba(255,255,255,0.2)"}`,background:task.done?dc:"transparent",flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginTop:1,transition:"all 0.2s"}},
+        task.done&&h("span",{style:{color:"#fff",fontSize:13,lineHeight:1}},"✓")
+      ),
+      h("div",{style:{flex:1,minWidth:0}},
+        h("div",{style:{fontSize:14,fontWeight:500,color:task.done?"#475569":"#e8e8f0",textDecoration:task.done?"line-through":"none",lineHeight:1.4,wordBreak:"break-word"}},
+          task.isDaily&&h("span",{style:{fontSize:13,marginRight:3}},"✨"),
+          task.title
+        ),
+        h("div",{style:{display:"flex",gap:5,marginTop:4,flexWrap:"wrap",alignItems:"center"}},
+          h("span",{style:{fontSize:10,padding:"2px 7px",borderRadius:20,background:`${pc.color}22`,color:pc.color,fontWeight:600}},`${pc.emoji} ${pc.label}`),
+          task.date!==td&&h("span",{style:{fontSize:10,color:"#64748b"}},task.date)
+        )
+      ),
+      h("button",{onClick:()=>delTask(task.id),style:{background:"none",border:"none",color:"#334155",fontSize:22,padding:"0 2px",cursor:"pointer",lineHeight:1,flexShrink:0}},"×")
+    );
+  }
+
+  // ── AddModal ──
+  function AddModal({onClose}){
+    const[title,setTitle]=useState("");
+    const[prio,setPrio]=useState("normal");
+    const[color,setColor]=useState(COLORS[0]);
+    const[date,setDate]=useState(selDate||td);
+    const go=()=>{if(title.trim()){addTask({title:title.trim(),priority:prio,color,date});onClose()}};
+    return h("div",{style:S.modal,onClick:e=>e.target===e.currentTarget&&onClose()},
+      h("div",{style:S.mc,className:"slide"},
+        h("div",{style:{fontFamily:"Playfair Display,serif",fontSize:20,fontWeight:700,color:"#f59e0b",marginBottom:2}},"Naya Task Jodo ✦"),
+        h("div",{style:{fontSize:12,color:"#64748b",marginBottom:4}},"Kya karna hai aaj? 🌟"),
+        h("label",{style:S.lbl},"Task Ka Naam"),
+        h("input",{style:S.inp,value:title,onChange:e=>setTitle(e.target.value),placeholder:"Task likhein...",onKeyDown:e=>e.key==="Enter"&&go(),autoFocus:true}),
+        h("label",{style:S.lbl},"Tarikh (Date)"),
+        h("input",{type:"date",style:S.inp,value:date,onChange:e=>setDate(e.target.value)}),
+        h("label",{style:S.lbl},"Priority"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:7}},
+          Object.entries(PC).map(([k,pc])=>
+            h("button",{key:k,onClick:()=>setPrio(k),style:{padding:"9px 11px",borderRadius:10,border:`1.5px solid ${prio===k?pc.color:"rgba(255,255,255,0.1)"}`,background:prio===k?pc.bg:"rgba(255,255,255,0.03)",color:prio===k?pc.color:"#94a3b8",fontSize:12,fontWeight:prio===k?600:400,cursor:"pointer",textAlign:"left",transition:"all 0.2s"}},
+              `${pc.emoji} ${pc.label}`
+            )
+          )
+        ),
+        h("label",{style:S.lbl},"Color Tag"),
+        h("div",{style:{display:"flex",gap:7,marginTop:8,flexWrap:"wrap"}},
+          COLORS.map(c=>h("button",{key:c,onClick:()=>setColor(c),style:{width:28,height:28,borderRadius:"50%",background:c,border:`2.5px solid ${color===c?"#fff":"transparent"}`,cursor:"pointer",transition:"border 0.15s"}}))
+        ),
+        h("button",{onClick:go,style:{...S.btn("#fff","linear-gradient(135deg,#f59e0b,#f97316)","transparent"),marginTop:18}},"+ Task Jodo"),
+        h("button",{onClick:onClose,style:S.btn("#64748b","none","rgba(255,255,255,0.1)")},"Cancel")
+      )
+    );
+  }
+
+  // ── DailyModal ──
+  function DailyModal({onClose}){
+    const[title,setTitle]=useState("");
+    const[color,setColor]=useState("#10b981");
+    return h("div",{style:S.modal,onClick:e=>e.target===e.currentTarget&&onClose()},
+      h("div",{style:S.mc,className:"slide"},
+        h("div",{style:{fontFamily:"Playfair Display,serif",fontSize:20,fontWeight:700,color:"#10b981"}},"Daily Tasks ✨"),
+        h("div",{style:{fontSize:12,color:"#64748b",marginBottom:14}},"Ye tasks har roz apne aap add honge"),
+        data.dailyTmpls.length===0&&h("div",{style:{textAlign:"center",color:"#475569",fontSize:13,padding:"12px 0"}},"Koi daily task nahi. Neeche add karo! 👇"),
+        data.dailyTmpls.map(t=>h("div",{key:t.id,style:{display:"flex",alignItems:"center",gap:9,padding:"10px 13px",background:"rgba(16,185,129,0.07)",borderRadius:10,marginBottom:7,border:"1px solid rgba(16,185,129,0.18)"}},
+          h("span",{style:{width:9,height:9,borderRadius:"50%",background:t.color,flexShrink:0,border:"1px solid rgba(255,255,255,0.2)"}}),
+          h("span",{style:{flex:1,fontSize:13,color:t.active?"#e8e8f0":"#475569",textDecoration:t.active?"none":"line-through"}},t.title),
+          h("button",{onClick:()=>togTmpl(t.id),style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"none",background:t.active?"rgba(16,185,129,0.2)":"rgba(255,255,255,0.06)",color:t.active?"#10b981":"#64748b",cursor:"pointer",fontWeight:600}},t.active?"ON":"OFF"),
+          h("button",{onClick:()=>delTmpl(t.id),style:{background:"none",border:"none",color:"#ef4444",fontSize:19,cursor:"pointer"}},"×")
+        )),
+        h("div",{style:{borderTop:"1px solid rgba(255,255,255,0.07)",marginTop:14,paddingTop:14}},
+          h("div",{style:{fontSize:13,fontWeight:600,color:"#94a3b8",marginBottom:7}},"Naya Daily Task Add Karo"),
+          h("input",{style:S.inp,value:title,onChange:e=>setTitle(e.target.value),placeholder:"e.g. Morning walk, Meditation..."}),
+          h("div",{style:{display:"flex",gap:7,marginTop:9,flexWrap:"wrap"}},
+            COLORS.map(c=>h("button",{key:c,onClick:()=>setColor(c),style:{width:28,height:28,borderRadius:"50%",background:c,border:`2.5px solid ${color===c?"#fff":"transparent"}`,cursor:"pointer"}}))
+          ),
+          h("button",{onClick:()=>{if(title.trim()){addTmpl({title:title.trim(),color});setTitle("")}},style:{...S.btn("#fff","linear-gradient(135deg,#10b981,#059669)","transparent"),marginTop:14}},"+ Daily Task Add Karo")
+        ),
+        h("button",{onClick:onClose,style:S.btn("#64748b","none","rgba(255,255,255,0.1)")},"Done ✓")
+      )
+    );
+  }
+
+  // ── TodayTab ──
+  function TodayTab(){
+    const tasks=forDate(td);
+    const done=tasks.filter(t=>t.done).length;
+    const dailies=tasks.filter(t=>t.isDaily);
+    const p=tasks.length>0?Math.round(done/tasks.length*100):0;
+    return h(Fragment,null,
+      h("div",{style:{padding:"10px 16px 0"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:5}},
+          h("span",{style:{fontSize:12,color:"#64748b"}},`${done} / ${tasks.length} tasks done aaj`),
+          h("span",{style:{fontSize:12,fontWeight:600,color:p===100?"#10b981":"#f59e0b"}},`${p}%${p===100?" 🎉":""}`)
+        ),
+        h("div",{style:{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden"}},
+          h("div",{style:{height:"100%",width:`${p}%`,background:p===100?"linear-gradient(90deg,#10b981,#34d399)":"linear-gradient(90deg,#f59e0b,#f97316)",borderRadius:3,transition:"width 0.6s ease"}})
+        )
+      ),
+      tasks.length===0
+        ?h("div",{style:S.empty},
+          h("div",{style:{fontSize:46,marginBottom:10}},"🌅"),
+          h("div",{style:{fontSize:17,fontWeight:600,color:"#94a3b8",fontFamily:"Playfair Display,serif"}},"Shuruaat karo!"),
+          h("div",{style:{fontSize:13,color:"#475569",marginTop:4}},"+ tap karke pehla task add karo"),
+          data.dailyTmpls.filter(t=>t.active).length>0&&h("div",{style:{fontSize:12,color:"#10b981",marginTop:8}},`✨ ${data.dailyTmpls.filter(t=>t.active).length} daily tasks ready`)
+        )
+        :h(Fragment,null,
+          dailies.length>0&&h(Fragment,null,h("div",{style:S.st},"✨ Daily Recurring"),dailies.map(t=>h(TaskItem,{key:t.id,task:t}))),
+          ["very-important","important","normal","low"].map(p=>{
+            const pts=tasks.filter(t=>!t.isDaily&&t.priority===p);
+            if(!pts.length)return null;
+            const pc=PC[p];
+            return h(Fragment,{key:p},h("div",{style:S.st},`${pc.emoji} ${pc.label}`),pts.map(t=>h(TaskItem,{key:t.id,task:t})));
+          })
+        )
+    );
+  }
+
+  // ── CalendarTab ──
+  function CalendarTab(){
+    const now=new Date();
+    const[cy,setCy]=useState(now.getFullYear());
+    const[cm,setCm]=useState(now.getMonth());
+    const first=new Date(cy,cm,1).getDay();
+    const dim=new Date(cy,cm+1,0).getDate();
+    const pfx=`${cy}-${String(cm+1).padStart(2,"0")}`;
+    const cnt=d=>data.tasks.filter(t=>t.date===`${pfx}-${String(d).padStart(2,"0")}`).length;
+    const dnc=d=>data.tasks.filter(t=>t.date===`${pfx}-${String(d).padStart(2,"0")}`&&t.done).length;
+    const sT=selDate?forDate(selDate):[];
+    return h(Fragment,null,
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px"}},
+        h("button",{onClick:()=>{const d=new Date(cy,cm-1);setCy(d.getFullYear());setCm(d.getMonth())},style:{background:"rgba(255,255,255,0.06)",border:"none",color:"#94a3b8",width:34,height:34,borderRadius:8,cursor:"pointer",fontSize:18}},"‹"),
+        h("span",{style:{fontFamily:"Playfair Display,serif",fontSize:17,fontWeight:700}},`${MONTHS[cm]} ${cy}`),
+        h("button",{onClick:()=>{const d=new Date(cy,cm+1);setCy(d.getFullYear());setCm(d.getMonth())},style:{background:"rgba(255,255,255,0.06)",border:"none",color:"#94a3b8",width:34,height:34,borderRadius:8,cursor:"pointer",fontSize:18}},"›")
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",padding:"0 14px",gap:3,marginBottom:4}},
+        ["S","M","T","W","T","F","S"].map((d,i)=>h("div",{key:i,style:{textAlign:"center",fontSize:11,color:"#475569",fontWeight:600,padding:"3px 0"}},d))
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",padding:"0 14px",gap:3}},
+        Array.from({length:first},(_,i)=>h("div",{key:`e${i}`})),
+        Array.from({length:dim},(_,i)=>{
+          const day=i+1;
+          const ds=`${pfx}-${String(day).padStart(2,"0")}`;
+          const isTd=ds===td,isSel=ds===selDate,c=cnt(day),dc=dnc(day);
+          return h("button",{key:day,onClick:()=>setSelDate(ds),style:{aspectRatio:"1",borderRadius:9,border:isSel?"2px solid #f59e0b":isTd?"2px solid rgba(245,158,11,0.35)":"1px solid rgba(255,255,255,0.06)",background:isSel?"rgba(245,158,11,0.14)":isTd?"rgba(245,158,11,0.05)":"rgba(255,255,255,0.025)",color:isSel?"#f59e0b":"#e8e8f0",fontSize:12,fontWeight:isTd||isSel?700:400,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2px",gap:1}},
+            day,
+            c>0&&h("div",{style:{display:"flex",gap:1}},Array.from({length:Math.min(c,3)},(_,j)=>h("div",{key:j,style:{width:4,height:4,borderRadius:"50%",background:j<dc?"#10b981":"#475569"}})))
+          );
+        })
+      ),
+      selDate&&h("div",{style:{marginTop:14}},
+        h("div",{style:{padding:"0 16px 6px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("div",{style:{fontSize:13,fontWeight:600,color:"#94a3b8"}},`${fDt(selDate)}${selDate===td?" — Aaj":""}`),
+          h("button",{onClick:()=>setAddOpen(true),style:{fontSize:11,padding:"5px 12px",borderRadius:7,border:"1px solid rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.1)",color:"#f59e0b",cursor:"pointer"}},"+ Task")
+        ),
+        sT.length===0?h("div",{style:{textAlign:"center",color:"#475569",fontSize:13,padding:"14px"}},"Is din ke liye koi task nahi")
+        :sT.map(t=>h(TaskItem,{key:t.id,task:t}))
+      )
+    );
+  }
+
+  // ── ProgressTab ──
+  function ProgressTab(){
+    const st=mStats(progMonth.y,progMonth.m);
+    const pie=[{name:"Done",value:st.done,color:"#10b981"},{name:"Baaki",value:st.left,color:"#ef4444"}];
+    const pRate=st.total>0?Math.round(st.done/st.total*100):0;
+    const last6=Array.from({length:6},(_,i)=>{const d=new Date();d.setMonth(d.getMonth()-(5-i));const y=d.getFullYear(),m=d.getMonth();const s=mStats(y,m);return{name:MS[m],rate:s.total>0?Math.round(s.done/s.total*100):0,done:s.done,total:s.total}});
+    return h("div",{style:{paddingBottom:16}},
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px"}},
+        h("button",{onClick:()=>{const d=new Date(progMonth.y,progMonth.m-1);setProgMonth({y:d.getFullYear(),m:d.getMonth()})},style:{background:"rgba(255,255,255,0.06)",border:"none",color:"#94a3b8",width:34,height:34,borderRadius:8,cursor:"pointer",fontSize:18}},"‹"),
+        h("span",{style:{fontFamily:"Playfair Display,serif",fontSize:17,fontWeight:700}},`${MONTHS[progMonth.m]} ${progMonth.y}`),
+        h("button",{onClick:()=>{const d=new Date(progMonth.y,progMonth.m+1);setProgMonth({y:d.getFullYear(),m:d.getMonth()})},style:{background:"rgba(255,255,255,0.06)",border:"none",color:"#94a3b8",width:34,height:34,borderRadius:8,cursor:"pointer",fontSize:18}},"›")
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,padding:"0 16px 14px"}},
+        [{l:"Total",v:st.total,c:"#3b82f6"},{l:"Done ✓",v:st.done,c:"#10b981"},{l:"Baaki",v:st.left,c:"#ef4444"}].map(s=>
+          h("div",{key:s.l,style:{background:`${s.c}12`,border:`1px solid ${s.c}2e`,borderRadius:12,padding:"11px 8px",textAlign:"center"}},
+            h("div",{style:{fontSize:26,fontWeight:700,color:s.c,fontFamily:"Playfair Display,serif"}},s.v),
+            h("div",{style:{fontSize:10,color:"#64748b",marginTop:1}},s.l)
+          )
+        )
+      ),
+      st.total>0?h(Fragment,null,
+        h("div",{style:S.st},"Completion Rate"),
+        h("div",{style:{...S.card,display:"flex",alignItems:"center",gap:18}},
+          typeof PieChart!=="undefined"&&h(PieChart,{width:130,height:130},
+            h(Pie,{data:pie,cx:60,cy:60,innerRadius:38,outerRadius:56,paddingAngle:3,dataKey:"value",startAngle:90,endAngle:-270},
+              pie.map((e,i)=>h(Cell,{key:i,fill:e.color}))
+            )
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:36,fontWeight:700,color:"#f59e0b",fontFamily:"Playfair Display,serif"}},`${pRate}%`),
+            h("div",{style:{fontSize:11,color:"#64748b"}},"complete hua"),
+            pie.map(d=>h("div",{key:d.name,style:{display:"flex",alignItems:"center",gap:5,marginTop:5}},
+              h("div",{style:{width:7,height:7,borderRadius:"50%",background:d.color}}),
+              h("span",{style:{fontSize:11,color:"#94a3b8"}},`${d.name}: ${d.value}`)
+            ))
+          )
+        ),
+        st.days.length>0&&h(Fragment,null,
+          h("div",{style:S.st},"Daily Breakdown"),
+          h("div",{style:S.card},
+            typeof ResponsiveContainer!=="undefined"&&h(ResponsiveContainer,{width:"100%",height:170},
+              h(BarChart,{data:st.days,margin:{top:0,right:0,left:-22,bottom:0}},
+                h(CartesianGrid,{strokeDasharray:"3 3",stroke:"rgba(255,255,255,0.04)"}),
+                h(XAxis,{dataKey:"day",tick:{fill:"#475569",fontSize:10}}),
+                h(YAxis,{tick:{fill:"#475569",fontSize:10}}),
+                h(Tooltip,{contentStyle:{background:"#131325",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,fontSize:12}}),
+                h(Bar,{dataKey:"done",name:"Done",fill:"#10b981",radius:[4,4,0,0]}),
+                h(Bar,{dataKey:"total",name:"Total",fill:"rgba(245,158,11,0.25)",radius:[4,4,0,0]})
+              )
+            )
+          )
+        )
+      ):h("div",{style:S.empty},h("div",{style:{fontSize:40,marginBottom:8}},"📊"),h("div",{style:{fontSize:15,color:"#94a3b8",fontFamily:"Playfair Display,serif"}},"Is mahine koi task nahi")),
+      h("div",{style:S.st},"6 Mahine Ki Journey"),
+      h("div",{style:S.card},
+        typeof ResponsiveContainer!=="undefined"&&h(ResponsiveContainer,{width:"100%",height:130},
+          h(BarChart,{data:last6,margin:{top:0,right:0,left:-22,bottom:0}},
+            h(XAxis,{dataKey:"name",tick:{fill:"#475569",fontSize:11}}),
+            h(YAxis,{tick:{fill:"#475569",fontSize:11},domain:[0,100]}),
+            h(Tooltip,{contentStyle:{background:"#131325",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,fontSize:12},formatter:v=>[`${v}%`,"Rate"]}),
+            h(Bar,{dataKey:"rate",name:"%",radius:[4,4,0,0]},last6.map((e,i)=>h(Cell,{key:i,fill:e.rate>=70?"#10b981":e.rate>=40?"#f59e0b":"#ef4444"})))
+          )
+        )
+      ),
+      h("div",{style:{padding:"8px 16px"}},
+        h("button",{onClick:()=>{if(window.confirm(`${MONTHS[progMonth.m]} ${progMonth.y} ke saare tasks delete karne hain?`)){const pfx=`${progMonth.y}-${String(progMonth.m+1).padStart(2,"0")}`;upd(p=>({...p,tasks:p.tasks.filter(t=>!t.date.startsWith(pfx))}))}}},style:{...S.btn("#ef4444","rgba(239,68,68,0.07)","rgba(239,68,68,0.3)"),marginTop:4}},"🗑️ Is Mahine Ka Reset Karo")
+      )
+    );
+  }
+
+  // ── HistoryTab ──
+  function HistoryTab(){
+    const groups={};
+    data.tasks.forEach(t=>{const k=mKey(t.date);if(!groups[k])groups[k]=[];groups[k].push(t)});
+    const sorted=Object.keys(groups).sort().reverse();
+    if(!sorted.length)return h("div",{style:S.empty},
+      h("div",{style:{fontSize:40,marginBottom:8}},"📖"),
+      h("div",{style:{fontSize:15,color:"#94a3b8",fontFamily:"Playfair Display,serif"}},"Abhi koi history nahi"),
+      h("div",{style:{fontSize:12,color:"#475569",marginTop:4}},"Tasks complete karo — history banti jayegi")
+    );
+    return h("div",null,sorted.map(mk=>{
+      const tasks=groups[mk];const done=tasks.filter(t=>t.done).length;
+      const[y,m]=mk.split("-").map(Number);const rate=tasks.length>0?Math.round(done/tasks.length*100):0;
+      const rc=rate>=70?"#10b981":rate>=40?"#f59e0b":"#ef4444";
+      return h("div",{key:mk,style:{...S.card,margin:"6px 16px",padding:"14px"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+          h("span",{style:{fontFamily:"Playfair Display,serif",fontSize:15,fontWeight:700}},`${MONTHS[m-1]} ${y}`),
+          h("span",{style:{fontSize:11,padding:"3px 9px",borderRadius:20,background:`${rc}1a`,color:rc,fontWeight:700}},`${done}/${tasks.length} • ${rate}%`)
+        ),
+        h("div",{style:{height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden",marginBottom:10}},
+          h("div",{style:{height:"100%",width:`${rate}%`,background:`linear-gradient(90deg,${rc},${rc}88)`,borderRadius:2}})
+        ),
+        tasks.slice(0,4).map(t=>{const pc=PC[t.priority]||PC.normal;return h("div",{key:t.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+          h("span",{style:{fontSize:14}},t.done?"✅":"⬜"),
+          h("span",{style:{fontSize:12,color:"#94a3b8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.title),
+          h("span",{style:{fontSize:10,color:pc.color}},pc.emoji)
+        )}),
+        tasks.length>4&&h("div",{style:{fontSize:11,color:"#475569",marginTop:6}},`+${tasks.length-4} aur tasks`)
+      );
+    }));
+  }
+
+  // ── SettingsTab ──
+  function SettingsTab(){
+    const reqN=async()=>{
+      if("Notification"in window){const p=await Notification.requestPermission();upd(prev=>({...prev,notifOn:p==="granted"}))}
+    };
+    const testN=()=>{if(data.notifOn&&"Notification"in window)new Notification("TaskMaster ✦",{body:"Aaj ke tasks check karo! Tum kar sakte ho! 💪"})};
+    return h("div",{style:{padding:"8px 16px 24px"}},
+      h("div",{style:{...S.card,margin:"10px 0"}},
+        h("div",{style:{fontSize:15,fontWeight:600,color:"#e8e8f0",marginBottom:3}},"🔔 Notifications"),
+        h("div",{style:{fontSize:12,color:"#64748b",marginBottom:10,lineHeight:1.6}},"Daily reminder tasks check karne ke liye"),
+        h("div",{style:{display:"flex",gap:8}},
+          h("button",{onClick:reqN,style:{flex:1,padding:"11px",borderRadius:10,border:"none",background:data.notifOn?"rgba(16,185,129,0.15)":"rgba(245,158,11,0.12)",color:data.notifOn?"#10b981":"#f59e0b",fontSize:13,fontWeight:600,cursor:"pointer"}},data.notifOn?"✓ Notifications On":"Enable Karo"),
+          data.notifOn&&h("button",{onClick:testN,style:{padding:"11px 14px",borderRadius:10,border:"none",background:"rgba(255,255,255,0.06)",color:"#94a3b8",fontSize:12,cursor:"pointer"}},"Test")
+        )
+      ),
+      h("div",{style:{...S.card,margin:"10px 0"}},
+        h("div",{style:{fontSize:15,fontWeight:600,color:"#e8e8f0",marginBottom:3}},"✨ Daily Task Templates"),
+        h("div",{style:{fontSize:12,color:"#64748b",marginBottom:10}},`${data.dailyTmpls.length} daily tasks • Har roz auto-add`),
+        h("button",{onClick:()=>setDailyOpen(true),style:{width:"100%",padding:"11px",borderRadius:10,border:"1px solid rgba(16,185,129,0.3)",background:"rgba(16,185,129,0.07)",color:"#10b981",fontSize:13,fontWeight:600,cursor:"pointer"}},"Daily Tasks Manage Karo →")
+      ),
+      h("div",{style:{...S.card,margin:"10px 0",borderColor:"rgba(239,68,68,0.2)"}},
+        h("div",{style:{fontSize:14,fontWeight:600,color:"#ef4444",marginBottom:8}},"⚠️ Danger Zone"),
+        h("button",{onClick:()=>{if(window.confirm("Saara data delete karna hai?"))upd(()=>dflt())},style:{...S.btn("#ef4444","rgba(239,68,68,0.07)","rgba(239,68,68,0.3)"),marginTop:0}},"Saara Data Delete Karo")
+      ),
+      h("div",{style:{textAlign:"center",padding:"22px 0 8px"}},
+        h("div",{style:{fontFamily:"Playfair Display,serif",fontSize:16,color:"#f59e0b"}},"TaskMaster ✦"),
+        h("div",{style:{fontSize:11,color:"#334155",marginTop:3}},"Aaj ka kaam aaj karo 🌟")
+      )
+    );
+  }
+
+  const TABS=[{id:"today",lbl:"Aaj",icon:"☀️"},{id:"calendar",lbl:"Calendar",icon:"📅"},{id:"progress",lbl:"Progress",icon:"📊"},{id:"history",lbl:"History",icon:"📖"},{id:"settings",lbl:"Settings",icon:"⚙️"}];
+
+  return h("div",{style:S.wrap},
+    // Confetti
+    confetti&&h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,pointerEvents:"none",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center"}},h("div",{style:{fontSize:64,animation:"popAnim 0.8s ease"}},"🎉")),
+    // Header
+    h("div",{style:S.hdr},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+        h("div",null,
+          h("div",{style:S.title},"TaskMaster ✦"),
+          h("div",{style:{fontSize:12,color:"#475569",marginTop:1}},`${dName(td)}, ${fDt(td)}`)
+        ),
+        tab==="today"&&h("div",{style:{textAlign:"right",background:"rgba(245,158,11,0.08)",borderRadius:10,padding:"6px 12px",border:"1px solid rgba(245,158,11,0.2)"}},
+          h("div",{style:{fontSize:20,fontWeight:700,color:"#f59e0b",fontFamily:"Playfair Display,serif"}},`${tdDone}/${tdTasks.length}`),
+          h("div",{style:{fontSize:9,color:"#64748b"}},"aaj done")
+        )
+      ),
+      h("div",{style:{fontSize:11,color:"#475569",fontStyle:"italic",marginTop:5,lineHeight:1.4}},`"${quote}"`)
+    ),
+    // Content
+    tab==="today"&&h(TodayTab,null),
+    tab==="calendar"&&h(CalendarTab,null),
+    tab==="progress"&&h(ProgressTab,null),
+    tab==="history"&&h(HistoryTab,null),
+    tab==="settings"&&h(SettingsTab,null),
+    // FAB
+    (tab==="today"||tab==="calendar")&&h("button",{style:S.fab,onClick:()=>setAddOpen(true)},"+"),
+    // Tab Bar
+    h("div",{style:S.tabbar},TABS.map(t=>h("button",{key:t.id,style:S.tb(tab===t.id),onClick:()=>{setTab(t.id);if(t.id==="today")setSelDate(toStr())}},h("span",{style:{fontSize:18}},t.icon),t.lbl))),
+    // Modals
+    addOpen&&h(AddModal,{onClose:()=>setAddOpen(false)}),
+    dailyOpen&&h(DailyModal,{onClose:()=>setDailyOpen(false)})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(App,null));
+
+// Service Worker registration
+if("serviceWorker"in navigator){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("sw.js").then(r=>console.log("SW registered")).catch(e=>console.log("SW error",e));
+  });
+}
+</script>
+</body>
+</html>
